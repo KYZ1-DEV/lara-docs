@@ -2,7 +2,7 @@
 set -e
 
 APP_DIR=/var/www/html
-GIT_REPO=${GIT_REPO:-"https://github.com/KYZ1-DEV/lara-docs.git"}
+GIT_REPO=${GIT_REPO:-"https://github.com/KYZ1-DEV/stater-live.git"}
 GIT_BRANCH=${GIT_BRANCH:-"main"}
 
 cd $APP_DIR
@@ -19,18 +19,18 @@ if [ ! -d "$APP_DIR/.git" ]; then
   rm -rf $APP_DIR/*
   git clone -b $GIT_BRANCH $GIT_REPO $APP_DIR
 else
-  echo "Repository sudah ada."
+  echo "Repository sudah ada, skip clone."
 fi
 
 # ==============================
-# SETUP ENV
+# SETUP ENV FILE
 # ==============================
 if [ ! -f ".env" ]; then
-  echo "Copy .env.example → .env"
+  echo "File .env belum ada, menyalin dari .env.example"
   cp .env.example .env
 fi
 
-echo "Inject environment ke .env"
+echo "Menyesuaikan .env dengan variabel environment (${DB_CONNECTION})"
 
 sed -i "s/^DB_CONNECTION=.*/DB_CONNECTION=${DB_CONNECTION}/" .env
 sed -i "s/^#* *DB_HOST=.*/DB_HOST=${DB_HOST}/" .env
@@ -39,30 +39,46 @@ sed -i "s/^#* *DB_DATABASE=.*/DB_DATABASE=${DB_DATABASE}/" .env
 sed -i "s/^#* *DB_USERNAME=.*/DB_USERNAME=${DB_USERNAME}/" .env
 sed -i "s/^#* *DB_PASSWORD=.*/DB_PASSWORD=${DB_PASSWORD}/" .env
 
-APP_ENV=$(grep ^APP_ENV= .env | cut -d '=' -f2 | tr -d '\r')
-APP_ENV=${APP_ENV:-local}
-
-echo "APP_ENV: $APP_ENV"
+cat .env | grep DB_
 
 # ==============================
 # PERMISSION
 # ==============================
-echo "Set permission..."
-chown -R www-data:www-data $APP_DIR
-chmod -R 775 storage bootstrap/cache || true
+echo "Mengatur permission direktori..."
+
+chown -R $USER_ID:$GROUP_ID $APP_DIR
+
+mkdir -p storage/logs
+touch storage/logs/laravel.log
+
+chown -R www-data:www-data storage bootstrap/cache
+chmod -R 775 storage bootstrap/cache
 
 # ==============================
-# COMPOSER INSTALL
+# INSTALL DEPENDENCY
 # ==============================
-echo "Running composer install..."
+echo "Validasi composer..."
+composer validate --strict || true
+
+echo "Menjalankan composer install..."
 composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
 
 # ==============================
-# GENERATE APP KEY
+# GENERATE APP KEY (jika belum ada)
 # ==============================
 if ! grep -q "^APP_KEY=base64" .env; then
+  echo "Generate APP_KEY..."
   php artisan key:generate
 fi
+
+# ==============================
+# CEK APP_ENV
+# ==============================
+APP_ENV=$(grep ^APP_ENV= .env | cut -d '=' -f2 | tr -d '\r')
+APP_ENV=${APP_ENV:-local}
+
+echo "Environment Laravel: $APP_ENV"
+
 
 # ==============================
 # NPM INSTALL & BUILD
@@ -86,22 +102,35 @@ until nc -z ${DB_HOST} ${DB_PORT:-3306}; do
 done
 echo "Database ready."
 
+
 # ==============================
-# MIGRATE
+# MIGRATION
 # ==============================
+echo "Menjalankan migrate..."
 php artisan migrate --force
 
 # ==============================
-# OPTIMIZE
+# OPTIMIZE / CLEAR CACHE
 # ==============================
 if [ "$APP_ENV" = "production" ]; then
+  echo "Mode production: caching..."
+  php artisan config:clear
+  php artisan cache:clear
+  php artisan view:clear
+  php artisan route:clear
+
   php artisan config:cache
   php artisan route:cache
   php artisan view:cache
 else
-  php artisan optimize:clear
+  echo "Mode development: clear cache..."
+  php artisan config:clear
+  php artisan cache:clear
+  php artisan view:clear
+  php artisan route:clear
 fi
 
-echo "Laravel ready 🚀"
-
+# ==============================
+# START APACHE
+# ==============================
 exec apache2-foreground
