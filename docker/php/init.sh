@@ -2,7 +2,7 @@
 set -e
 
 APP_DIR=/var/www/html
-GIT_REPO=${GIT_REPO:-"https://github.com/KYZ1-DEV/stater-live.git"}
+GIT_REPO=${GIT_REPO:-"https://github.com/KYZ1-DEV/livewire.git"}
 GIT_BRANCH=${GIT_BRANCH:-"main"}
 
 cd $APP_DIR
